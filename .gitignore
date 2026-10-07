@@ -1,0 +1,5 @@
+build/
+testserver/*/*
+!testserver/*/server.properties
+testserver/*.jar
+.DS_Store
