@@ -1,5 +1,3 @@
-build/
-testserver/*/*
-!testserver/*/server.properties
-testserver/*.jar
+target/
 .DS_Store
+examples/build/

@@ -1,0 +1,23 @@
+[package]
+name = "mcscon"
+version = "0.2.0"
+edition = "2021"
+rust-version = "1.82"
+description = "Minimal embeddable Minecraft Java client protocol layer (1.10 - 1.12.2): no_std, zero allocation, zero-copy"
+license = "MIT"
+
+[features]
+default = ["std"]
+# std: POSIX/TCP transport and convenience helpers. The protocol core itself is #![no_std] and never allocates.
+std = []
+# capi: the small C API in include/mcscon.h (used by examples/c and examples/cpp); implies std.
+capi = ["std"]
+
+[dependencies]
+libm = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

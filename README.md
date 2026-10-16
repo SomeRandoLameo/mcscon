@@ -1,119 +1,102 @@
 # mcscon
 
-A flexible and lightweight Minecraft protocol library.
+A minimal, embeddable **Minecraft: Java Edition client** protocol library (1.10 – 1.12.2, offline mode), written in
+**Rust** and usable from **Rust**, **C** and **C++**.
 
-mcscon is a minimal, embeddable C++ implementation of the Minecraft: Java Edition **client** protocol
-(currently **1.10 – 1.12.2**, offline mode). It is designed for tiny footprints and easy porting: no
-dependencies (no curl, no OpenSSL, no zlib), no heap allocation, no exceptions, no RTTI, C++11.
+- **Tiny and portable** – the protocol core is `#![no_std]`, never allocates (you hand in the buffers) and has one
+  dependency (`libm`). The whole network layer is four functions: `connect / recv / send / close`.
+- **Zero-copy** – strings, item NBT, arrays and entity metadata are views into the receive buffer.
+- **Layered** – use only the packet pump and typed packets, or add world, entities, inventory, physics and a ready-made
+  bot `Session`.
+- **Generated, not hand-typed** – packet ids and all 80 clientbound / 34 serverbound layouts come from
+  [PrismarineJS/minecraft-data](https://github.com/PrismarineJS/minecraft-data) via `tools/`.
+- **Safe on bad input** – malformed packets are rejected, never panicked on; the decoders are checked against
+  thousands of reference packets.
 
-- **Portable by construction** – the whole network layer is four function pointers (`connect/recv/send/close`).
-- **Zero allocation** – you hand in the buffers; everything else lives in fixed-size tables you size yourself.
-- **Zero-copy decoding** – strings, item NBT, arrays and entity metadata are views into the receive buffer.
-- **Layered** – use only the raw packet pump, or add world / entities / inventory / physics / a ready-made `Session`.
-- **Generated, not hand-typed** – packet ids and all packet layouts come from
-  [PrismarineJS/minecraft-data](https://github.com/PrismarineJS/minecraft-data) via the scripts in `tools/`.
+> Status: offline-mode login only. Online mode (encryption + Microsoft auth) and more protocol versions are planned,
+> see [PLAN.md](PLAN.md).
 
-> Status: offline-mode login only. Online mode (encryption + Microsoft auth), other protocol versions and
-> platform ports beyond POSIX sockets are planned, see [PLAN.md](PLAN.md).
+## Documentation
 
-## Layers
+Full documentation is in [`docs/`](docs/README.md):
 
-| Layer | Files | What you get |
-|-------|-------|--------------|
-| Core (~9 KB code) | `client.h/.cpp`, `zlib.cpp`, `transport.h`, `buffer.h` | handshake, status ping, offline login, framing, compression (inflate), keep-alive, packet dispatch |
-| Packets (header-only) | `packets_cb.h`, `packets_sb.h`, `packets.h`, `wire.h` | typed decoders for all 80 clientbound play packets, typed encoders for all 34 serverbound ones, version-aware |
-| `libmcscon_modules` (optional) | `world.h`, `entities.h`, `inventory.h`, `physics.h`, `chat.h`, `nbt.h`, `session.h` | chunk/world model, entity tracker + tab list, inventory/windows/clicks, vanilla physics with exact collision shapes, chat JSON to text, NBT reader, a high-level bot `Session` |
-| Platform (optional) | `platform/posix_transport.*` | BSD-socket transport |
+| | |
+|-|-|
+| Start | [Getting started](docs/getting-started.md) (Rust, C, C++) · [Concepts](docs/concepts.md) · [Memory sizing](docs/memory.md) · [Troubleshooting](docs/troubleshooting.md) |
+| Language guides | [C API](docs/c-api.md) · [C++ API](docs/cpp-api.md) · [Rust API](docs/rust-api.md) |
+| Rust module reference | [client](docs/rust/client.md) · [transport](docs/rust/transport.md) · [packets](docs/rust/packets.md) · [wire](docs/rust/wire.md) · [session](docs/rust/session.md) · [world](docs/rust/world.md) · [entities](docs/rust/entities.md) · [inventory](docs/rust/inventory.md) · [physics](docs/rust/physics.md) · [chat & NBT](docs/rust/chat-nbt.md) · [internals](docs/rust/internals.md) |
+| Reference | [Packet reference](docs/packet-reference.md) (generated) · [Testing and code generation](docs/testing-and-codegen.md) |
 
-## Quick start
+## Examples
 
-```cpp
-#include <mcscon/session.h>
-#include "platform/posix_transport.h"
-using namespace mc;
+One bot, three languages, the same steps: join, print chat, say hello, walk forward for 3 seconds, print the position.
 
-static u8 rx[128 * 1024], scratch[512 * 1024], tx[4096];
-static StaticStorage<49, 256 * 1024, 64, 16> storage;   // 49 chunk columns, 256 KB chunk arena, 64 entities, 16 tab-list entries
+| Language | File | Run |
+|----------|------|-----|
+| Rust | [`examples/bot.rs`](examples/bot.rs) | `cargo run --release --example bot -- 127.0.0.1 25565` |
+| C | [`examples/c/bot.c`](examples/c/bot.c) | `make -C examples && examples/build/bot_c 127.0.0.1 25565` |
+| C++ | [`examples/cpp/bot.cpp`](examples/cpp/bot.cpp) | `make -C examples && examples/build/bot_cpp 127.0.0.1 25565` |
 
-int main() {
-    PosixSocket sock;
-    Buffers buffers = {rx, sizeof rx, scratch, sizeof scratch, tx, sizeof tx};
-    Session bot(makePosixTransport(&sock), buffers, Version::V1_12_2, storage.get());
+The C and C++ examples use the small C API in [`include/mcscon.h`](include/mcscon.h) (about a dozen functions) and the
+C++ wrapper [`include/mcscon.hpp`](include/mcscon.hpp). The Rust example uses the native API with fully caller-owned
+memory. Start any offline-mode vanilla 1.12.2 server (`online-mode=false`) to try them.
 
-    bot.onChat([](void*, const char* text, u8, StrView) { printf("chat: %s\n", text); }, 0);
-    if (!bot.connect("127.0.0.1", 25565, "mcscon")) return 1;
+The C API (`--features capi`, see `src/capi.rs`) allocates its buffers for convenience. For fixed, static memory use the
+Rust API directly.
 
-    while (bot.poll() >= 0) {              // pump the network
-        bot.update(nowMs());               // 20 Hz physics + position packets (nowMs(): your clock)
-        // bot.say("hello!"); bot.controls.forward = true; bot.world().blockId(x, y, z); ...
+## Layers (Rust API)
+
+| Module | What you get |
+|--------|--------------|
+| `client`, `inflate`, `transport`, `wire`, `ids` | handshake, status ping, offline login, framing, compression, keep-alive, packet dispatch |
+| `packets::{cb,sb}` (generated) | typed decoders for all clientbound play packets, typed encoders for all serverbound ones, version-aware |
+| `world`, `entities`, `inventory`, `physics`, `chat`, `nbt` | chunk model, entity tracker + tab list, inventory/windows/clicks, vanilla physics with exact collision shapes, chat JSON to text, NBT reader |
+| `session` | a high-level bot: player state, teleport/respawn/resource-pack handling, 20 Hz movement |
+| `posix` | TCP transport on `std::net` |
+
+Only need the protocol? Use `Client` and decode what you care about:
+
+```rust
+use mcscon::{client::Event, packets::{self, cb, sb}, wire::Str};
+
+client.poll(|link, event| {
+    if let Event::Packet(p) = event {
+        if let Some(chat) = packets::read::<cb::Chat>(&p) { /* chat.message is a view into the receive buffer */ }
     }
-}
+});
+packets::send(&mut client.link, &sb::Chat { message: Str(b"hi") });
 ```
 
-Only need the protocol? Use `Client` directly and decode what you care about:
-
-```cpp
-void onPacket(void*, const Packet& p) {
-    cb::Chat chat;
-    if (pkt::read(p, chat)) { /* chat.message is a StrView into the receive buffer */ }
-}
-// sending:
-sb::Chat msg = {}; msg.message = StrView{"hi", 2}; pkt::send(client, msg);
-```
-
-Buffers: `rx` must hold your largest wire packet, `scratch` your largest *decompressed* packet (not needed without
-compression). Packets that do not fit are skipped and reported as `Error::PacketTooLarge`, the connection stays healthy.
+Buffers: `rx` must hold your largest wire packet, `scratch` your largest *decompressed* packet (unused without
+compression). Packets that do not fit are skipped and reported as `Error::PacketTooLarge`; the connection stays healthy.
 
 ## Porting
 
-Implement `mc::Transport` (see `include/mcscon/transport.h`): a blocking `connect`, non-blocking `recv`/`send`
-returning byte counts (`0` = would block, `<0` = closed) and `close`. That is the entire platform dependency.
-Nothing in the library reads a clock, a file or a socket on its own.
+Implement `mcscon::transport::Transport`: a blocking `connect`, non-blocking `recv`/`send` returning byte counts
+(`0` = would block, `Err` = closed) and `close`. That is the entire platform dependency; nothing in the library reads
+a clock, a file or a socket on its own.
 
-## Build and test
-
-```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build
-ctest --test-dir build        # unit tests, no network needed
-```
-
-Or just copy `include/` and the `src/*.cpp` you need into your own build system.
-
-### Integration tests against real servers
-
-The integration tests drive real vanilla servers (1.10.2, 1.11, 1.11.2, 1.12, 1.12.1, 1.12.2) that you download
-yourself from Mojang. Accepting the Mojang EULA is up to you. Put each `server.jar` into `testserver/<version>/`, set
-`eula=true` there, and run them only on loopback (the provided `server.properties` bind to `127.0.0.1`,
-`online-mode=false`).
+## Tests
 
 ```
-python3 tools/verify_all.py            # build + unit tests + per version: scenario, packet coverage, edge cases
-python3 tools/integ_session.py 1.12.2  # world, physics, entities, inventory, windows, chat, death/respawn
-python3 tools/integ_coverage.py 1.12.2 # two bots, ~100 console commands, every clientbound packet is decoded
+cargo test                    # unit tests, wire-vector tests, world/inventory/physics/session scenarios; no network
 ```
 
-Last full run: 28/28 steps passed. The coverage runs decoded 74-78 of the 80 clientbound packet types from real
-traffic without a single decode error; `Entity` and `PlayerlistHeader` are never sent by vanilla and are covered by
-synthetic vectors only.
+`tests/data/*.bin` are language-neutral wire vectors made by an independent Python reference encoder (random valid
+clientbound packets for every version, plus zlib streams); `tests/vectors.rs` requires every decoder to consume them
+exactly and to survive truncation and corruption.
 
-### Regenerating the generated headers
+## Regenerating the generated code
+
+Needs a checkout of [minecraft-data](https://github.com/PrismarineJS/minecraft-data) (`MD=<checkout>/data/pc`):
 
 ```
-python3 tools/gen_ids.py     <minecraft-data>/data/pc > include/mcscon/ids_gen.h
-python3 tools/gen_packets.py <minecraft-data>/data/pc include/mcscon
-python3 tools/gen_blocks.py  <minecraft-data>/data/pc > include/mcscon/blocks_gen.h
-python3 tools/gen_vectors.py <minecraft-data>/data/pc > tests/packet_vectors.h
+python3 tools/gen_ids.py     $MD > src/ids.rs
+(cd tools && python3 gen_packets_rs.py $MD ../src/packets)
+python3 tools/gen_blocks.py  $MD > src/blocks.rs
+python3 tools/gen_vectors.py $MD tests/data/packet_vectors.bin
+python3 tools/gen_testvec.py tests/data/zlib_vectors.bin
 ```
-
-## Limitations
-
-- Offline mode only (no encryption, no Microsoft/Mojang authentication yet).
-- Protocol 1.10 – 1.12.2 only. Tested against vanilla servers only (not Spigot/Paper).
-- Only a POSIX transport is provided; `connect()` is blocking. Other platforms (Windows, 3DS, lwIP) need a transport.
-- Built and tested with Clang on macOS (arm64) so far.
-- Compressed packets must fit completely into the receive buffer (no streaming inflate).
-- Several packet families are decoded but not modelled (scoreboard, boss bars, titles, maps, advancements, ...);
-  they reach you through the packet callback. Item NBT is not stored, only exposed inside callbacks.
 
 ## License
 
