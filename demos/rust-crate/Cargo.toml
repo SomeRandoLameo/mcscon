@@ -1,0 +1,8 @@
+[package]
+name = "rust-demo"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# In a real project: path = "vendor/mcscon" or git = "https://github.com/SomeRandoLameo/mcscon"
+mcscon = { path = "../.." }

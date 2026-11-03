@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.15)
+project(c_demo LANGUAGES C)
+# In a real project: add_subdirectory(vendor/mcscon)
+add_subdirectory(../.. mcscon)
+add_executable(demo main.c)
+target_link_libraries(demo PRIVATE mcscon::mcscon)
